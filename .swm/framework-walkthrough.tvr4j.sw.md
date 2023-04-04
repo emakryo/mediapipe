@@ -1,6 +1,6 @@
 ---
 id: tvr4j
-title: Framework workthrough
+title: Framework walkthrough
 file_version: 1.1.2
 app_version: 1.5.5
 ---
@@ -16,7 +16,8 @@ app_version: 1.5.5
 *   Calculator (CalculatorNode) のライフタイム
 
 *   Packetの入力・実行・出力まで
-<br/>
+
+    <br/>
 
 # CalculatorGraphのインターフェース
 
@@ -26,7 +27,7 @@ app_version: 1.5.5
 
 <br/>
 
-CalculatorGraphConfig `📄 mediapipe/framework/calculator.proto`で定義された設定から初期化
+`CalculatorGraphConfig`<swm-token data-swm-token=":mediapipe/framework/calculator.proto:224:2:2:`message CalculatorGraphConfig {`"/> で定義された設定から初期化
 <!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
 ### 📄 mediapipe/framework/calculator_graph.h
 ```c
@@ -43,7 +44,7 @@ CalculatorGraphConfig `📄 mediapipe/framework/calculator.proto`で定義され
 
 <br/>
 
-
+非同期に実行を開始する。（同期的に実行終了まで待つメソッド `Run`<swm-token data-swm-token=":mediapipe/framework/calculator_graph.h:186:5:5:`  absl::Status Run() { return Run({}); }`"/> も存在する）
 <!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
 ### 📄 mediapipe/framework/calculator_graph.h
 ```c
@@ -119,6 +120,46 @@ CalculatorGraphConfig `📄 mediapipe/framework/calculator.proto`で定義され
 161          bool observe_timestamp_bounds = false);
 162    
 ```
+
+<br/>
+
+# CalculatorGraphのデータ構造
+
+CalculatorGraphの中で用いられる主なクラスに関して説明します。
+
+[https://miro.com/app/board/uXjVMZlsp8U=/?moveToWidget=3458764549819273119&cot=14](https://miro.com/app/board/uXjVMZlsp8U=/?moveToWidget=3458764549819273119&cot=14)
+
+## `ValidatedGraphConfig`<swm-token data-swm-token=":mediapipe/framework/validated_graph_config.h:192:2:2:`class ValidatedGraphConfig {`"/>
+
+`CalculatorGraphConfig`<swm-token data-swm-token=":mediapipe/framework/calculator.proto:224:2:2:`message CalculatorGraphConfig {`"/>が正しいかどうか検査する。その中で GetContract を呼び出すことでCalulatorの入出力が正当かどうかのチェックも行う。
+
+## `CalculatorNode`<swm-token data-swm-token=":mediapipe/framework/calculator_node.h:63:2:2:`class CalculatorNode {`"/>
+
+グラフ内のノードに対応する。主なフィールドに次のようなものがある。
+
+*   `CalculatorBase`<swm-token data-swm-token=":mediapipe/framework/calculator_base.h:75:2:2:`class CalculatorBase {`"/> Calculatorの実装
+
+*   `InputStreamHandler`<swm-token data-swm-token=":mediapipe/framework/input_stream_handler.h:68:2:2:`class InputStreamHandler {`"/> ノードの入力ストリームの状態から実行すべきかどうかを判断する
+
+*   `OutputStreamHandler`<swm-token data-swm-token=":mediapipe/framework/output_stream_handler.h:43:2:2:`class OutputStreamHandler {`"/> ノードの出力ストリームを次のノードの入力ストリームに伝播させる
+
+*   `CalculatorContextManager`<swm-token data-swm-token=":mediapipe/framework/calculator_context_manager.h:36:2:2:`class CalculatorContextManager {`"/> Calculatorの実行時に参照される `CalculatorContext`<swm-token data-swm-token=":mediapipe/framework/calculator_context.h:44:2:2:`class CalculatorContext {`"/> を管理する
+
+*   \*(ポインタ) `SchedulerQueue`<swm-token data-swm-token=":mediapipe/framework/scheduler_queue.h:38:2:2:`class SchedulerQueue : public TaskQueue {`"/> このノードが実行されるキューへの参照
+
+## `Scheduler`<swm-token data-swm-token=":mediapipe/framework/scheduler.h:43:2:2:`class Scheduler {`"/>
+
+ノードとノードが実行されるキューを管理する。`SchedulerQueue`<swm-token data-swm-token=":mediapipe/framework/scheduler_queue.h:38:2:2:`class SchedulerQueue : public TaskQueue {`"/> の配列（std::vector）をフィールドに持つ。
+
+## `InputStreamManager`<swm-token data-swm-token=":mediapipe/framework/input_stream_manager.h:46:2:2:`class InputStreamManager {`"/>
+
+ノードの入力ストリームに対応する。入力ストリームに流れるデータパケットをキューに保持し、InputStreamHandler から参照される。
+
+## `OutputStreamManager`<swm-token data-swm-token=":mediapipe/framework/output_stream_manager.h:38:2:2:`class OutputStreamManager {`"/>
+
+ノードの出力ストリームに対応する。次のノードのInputStreamHandlerへの参照とそのノードの中のどの入力ストリームと繋がっているかをMirrorという形で保持する。
+
+<br/>
 
 <br/>
 
