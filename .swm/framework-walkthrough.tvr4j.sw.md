@@ -19,6 +19,8 @@ app_version: 1.5.5
 
     *   スケジュールされたタスクの実行
 
+    *   出力ストリームに対するコールバックが呼ばれるまで
+
 # CalculatorGraphのインターフェース
 
 `CalculatorGraph`<swm-token data-swm-token=":mediapipe/framework/calculator_graph.h:96:2:2:`class CalculatorGraph {`"/>がアプリケーションから利用されるエントリーポイントになります。主に使われるメソッドをいくつか挙げます。
@@ -162,8 +164,6 @@ CalculatorGraphの中で用いられる主なクラスに関して説明しま�
 ## `OutputStreamManager`<swm-token data-swm-token=":mediapipe/framework/output_stream_manager.h:38:2:2:`class OutputStreamManager {`"/>
 
 ノードの出力ストリームに対応する。次のノードのInputStreamHandlerへの参照とそのノードの中のどの入力ストリームと繋がっているかをMirrorという形で保持する。
-
-<br/>
 
 # Packetの入力・実行・出力まで
 
@@ -795,7 +795,6 @@ schedule\_callback\_の定義箇所
 773          RecordError(result);
 774        }
 775      }
-776      for (auto& graph_output_stream : graph_output_streams_) {
 ```
 
 <br/>
@@ -1366,6 +1365,212 @@ CalculatorNode::ProcessNodeを呼び出し、最後にCalculatorNode::EndSchedul
 ## 出力ストリームに対するコールバックが呼ばれるまで
 
 <br/>
+
+OutputStreamObserverとしてコールバックを登録
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/calculator_graph.cc
+```c++
+453    absl::Status CalculatorGraph::ObserveOutputStream(
+454        const std::string& stream_name,
+455        std::function<absl::Status(const Packet&)> packet_callback,
+456        bool observe_timestamp_bounds) {
+457      RET_CHECK(initialized_).SetNoLogging()
+458          << "CalculatorGraph is not initialized.";
+459      // TODO Allow output observers to be attached by graph level
+460      // tag/index.
+461      int output_stream_index = validated_graph_->OutputStreamIndex(stream_name);
+462      if (output_stream_index < 0) {
+463        return mediapipe::NotFoundErrorBuilder(MEDIAPIPE_LOC)
+464               << "Unable to attach observer to output stream \"" << stream_name
+465               << "\" because it doesn't exist.";
+466      }
+467      auto observer = absl::make_unique<internal::OutputStreamObserver>();
+468      MP_RETURN_IF_ERROR(observer->Initialize(
+469          stream_name, &any_packet_type_, std::move(packet_callback),
+470          &output_stream_managers_[output_stream_index], observe_timestamp_bounds));
+471      graph_output_streams_.push_back(std::move(observer));
+472      return absl::OkStatus();
+473    }
+474    
+```
+
+<br/>
+
+コールバックの初期化と基底クラス（GraphOutputStream）のInitializeメソッドの呼び出し
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/graph_output_stream.cc
+```c++
+56     absl::Status OutputStreamObserver::Initialize(
+57         const std::string& stream_name, const PacketType* packet_type,
+58         std::function<absl::Status(const Packet&)> packet_callback,
+59         OutputStreamManager* output_stream_manager, bool observe_timestamp_bounds) {
+60       RET_CHECK(output_stream_manager);
+61     
+62       packet_callback_ = std::move(packet_callback);
+63       observe_timestamp_bounds_ = observe_timestamp_bounds;
+64       return GraphOutputStream::Initialize(stream_name, packet_type,
+65                                            output_stream_manager,
+66                                            observe_timestamp_bounds);
+67     }
+68     
+```
+
+<br/>
+
+OutputStreamManagerに次の入力としてOutputStreamObserverを登録
+
+InputStreamHandler, InputStreamManagerを経由するのでそれぞれ初期化する。
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/graph_output_stream.cc
+```c++
+24     absl::Status GraphOutputStream::Initialize(
+25         const std::string& stream_name, const PacketType* packet_type,
+26         OutputStreamManager* output_stream_manager, bool observe_timestamp_bounds) {
+27       RET_CHECK(output_stream_manager);
+28     
+29       // Initializes input_stream_handler_ with one input stream as the observer.
+30       proto_ns::RepeatedPtrField<ProtoString> input_stream_field;
+31       input_stream_field.Add()->assign(stream_name);
+32       std::shared_ptr<tool::TagMap> tag_map =
+33           tool::TagMap::Create(input_stream_field).value();
+34       input_stream_handler_ = absl::make_unique<GraphOutputStreamHandler>(
+35           tag_map, /*cc_manager=*/nullptr, MediaPipeOptions(),
+36           /*calculator_run_in_parallel=*/false);
+37       input_stream_handler_->SetProcessTimestampBounds(observe_timestamp_bounds);
+38       const CollectionItemId& id = tag_map->BeginId();
+39       input_stream_ = absl::make_unique<InputStreamManager>();
+40       MP_RETURN_IF_ERROR(
+41           input_stream_->Initialize(stream_name, packet_type, /*back_edge=*/false));
+42       MP_RETURN_IF_ERROR(input_stream_handler_->InitializeInputStreamManagers(
+43           input_stream_.get()));
+44       output_stream_manager->AddMirror(input_stream_handler_.get(), id);
+45       return absl::OkStatus();
+46     }
+47     
+```
+
+<br/>
+
+このInputStreamHandlerはnotification\_ コールバックが通常のノードとは異なる。
+
+<br/>
+
+notification コールバックの登録
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/graph_output_stream.cc
+```c++
+48     void GraphOutputStream::PrepareForRun(
+49         std::function<void()> notification_callback,
+50         std::function<void(absl::Status)> error_callback) {
+51       input_stream_handler_->PrepareForRun(
+52           /*headers_ready_callback=*/[] {}, std::move(notification_callback),
+53           /*schedule_callback=*/nullptr, std::move(error_callback));
+54     }
+```
+
+<br/>
+
+コールバックの定義箇所
+
+実際にはGraphOutputStream (OutputStreamObserverの基底クラス) のNotifyとScheduler::EmittedObservedOutputが呼ばれている。
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/calculator_graph.cc
+```c++
+776      for (auto& graph_output_stream : graph_output_streams_) {
+777        graph_output_stream->PrepareForRun(
+778            [&graph_output_stream, this] {
+779              absl::Status status = graph_output_stream->Notify();
+780              if (!status.ok()) {
+781                RecordError(status);
+782              }
+783              scheduler_.EmittedObservedOutput();
+784            },
+785            [this](absl::Status status) { RecordError(status); });
+786      }
+787    
+```
+
+<br/>
+
+キューに含まれるパケットそれぞれについてコールバックが実行される
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/graph_output_stream.cc
+```c++
+69     absl::Status OutputStreamObserver::Notify() {
+70       // Lets one thread perform packets notification as much as possible.
+71       // Other threads should quit if a thread is already performing notification.
+72       {
+73         absl::MutexLock l(&mutex_);
+74     
+75         if (notifying_ == false) {
+76           notifying_ = true;
+77         } else {
+78           return absl::OkStatus();
+79         }
+80       }
+81       while (true) {
+82         bool empty;
+83         Timestamp min_timestamp = input_stream_->MinTimestampOrBound(&empty);
+84         if (empty) {
+85           // Emits an empty packet at timestamp_bound.PreviousAllowedInStream().
+86           if (observe_timestamp_bounds_ && min_timestamp < Timestamp::Done()) {
+87             Timestamp settled = (min_timestamp == Timestamp::PostStream()
+88                                      ? Timestamp::PostStream()
+89                                      : min_timestamp.PreviousAllowedInStream());
+90             if (last_processed_ts_ < settled) {
+91               MP_RETURN_IF_ERROR(packet_callback_(Packet().At(settled)));
+92               last_processed_ts_ = settled;
+93             }
+94           }
+95           // Last check to make sure that the min timestamp or bound doesn't change.
+96           // If so, flips notifying_ to false to allow any other threads to perform
+97           // notification when new packets/timestamp bounds arrive. Otherwise, in
+98           // case of the min timestamp or bound getting updated, jumps to the
+99           // beginning of the notification loop for a new iteration.
+100          {
+101            absl::MutexLock l(&mutex_);
+102            Timestamp new_min_timestamp =
+103                input_stream_->MinTimestampOrBound(&empty);
+104            if (new_min_timestamp == min_timestamp) {
+105              notifying_ = false;
+106              break;
+107            } else {
+108              continue;
+109            }
+110          }
+111        }
+112        int num_packets_dropped = 0;
+113        bool stream_is_done = false;
+114        Packet packet = input_stream_->PopPacketAtTimestamp(
+115            min_timestamp, &num_packets_dropped, &stream_is_done);
+116        RET_CHECK_EQ(num_packets_dropped, 0).SetNoLogging()
+117            << absl::Substitute("Dropped $0 packet(s) on input stream \"$1\".",
+118                                num_packets_dropped, input_stream_->Name());
+119        MP_RETURN_IF_ERROR(packet_callback_(packet));
+120        last_processed_ts_ = min_timestamp;
+121      }
+122      return absl::OkStatus();
+123    }
+124    
+```
+
+<br/>
+
+condition variableへのシグナル通知
+
+アプリケーション（CalculatorGraphの呼び出し側）のスレッドで同期するために使われる。
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/scheduler.cc
+```c++
+252    void Scheduler::EmittedObservedOutput() {
+253      absl::MutexLock lock(&state_mutex_);
+254      observed_output_signal_ = true;
+255      if (waiting_for_observed_output_) {
+256        state_cond_var_.SignalAll();
+257      }
+258    }
+259    
+```
 
 <br/>
 
