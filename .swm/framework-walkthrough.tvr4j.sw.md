@@ -135,7 +135,7 @@ CalculatorGraphの中で用いられる主なクラスに関して説明しま�
 
 ## `ValidatedGraphConfig`<swm-token data-swm-token=":mediapipe/framework/validated_graph_config.h:192:2:2:`class ValidatedGraphConfig {`"/>
 
-`CalculatorGraphConfig`<swm-token data-swm-token=":mediapipe/framework/calculator.proto:224:2:2:`message CalculatorGraphConfig {`"/>が正しいかどうか検査する。その中で GetContract を呼び出すことでCalulatorの入出力が正当かどうかのチェックも行う。
+`CalculatorGraphConfig`<swm-token data-swm-token=":mediapipe/framework/calculator.proto:224:2:2:`message CalculatorGraphConfig {`"/>を元に検証済みの設定を持つ。検証の際に GetContract を呼び出すことでCalulatorの入出力ストリームの型などがが正当かどうかのチェックも行う。
 
 ## `CalculatorNode`<swm-token data-swm-token=":mediapipe/framework/calculator_node.h:63:2:2:`class CalculatorNode {`"/>
 
@@ -153,7 +153,7 @@ CalculatorGraphの中で用いられる主なクラスに関して説明しま�
 
 ## `Scheduler`<swm-token data-swm-token=":mediapipe/framework/scheduler.h:43:2:2:`class Scheduler {`"/>
 
-ノードとノードが実行されるキューを管理する。`SchedulerQueue`<swm-token data-swm-token=":mediapipe/framework/scheduler_queue.h:38:2:2:`class SchedulerQueue : public TaskQueue {`"/> の配列（std::vector）をフィールドに持つ。
+ノードとノードが実行されるタスクキューを管理する。`SchedulerQueue`<swm-token data-swm-token=":mediapipe/framework/scheduler_queue.h:38:2:2:`class SchedulerQueue : public TaskQueue {`"/> の配列（std::vector）をフィールドに持つ。
 
 ### `SchedulerQueue`<swm-token data-swm-token=":mediapipe/framework/scheduler_queue.h:38:2:2:`class SchedulerQueue : public TaskQueue {`"/>
 
@@ -801,7 +801,7 @@ schedule\_callback\_の定義箇所
 
 <br/>
 
-schedule\_callback\_ としてこれが呼ばれる
+schedule\_callback\_ として呼ばれる関数
 
 ノードに紐づくSchedulerQueueに対してAddNodeを呼び出す
 <!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
@@ -1186,7 +1186,7 @@ CalculatorNode::ProcessNodeを呼び出し、最後にCalculatorNode::EndSchedul
 
 <br/>
 
-ここでようやく実際の処理であるCalculatorBase::Process を呼び出す。その後、OutputStreamManager::PostProcessによって出力ストリームに流れたパケットを次のノードに伝播させる。
+ここでようやく実際の処理であるCalculatorBase::Process を呼び出す。その後、OutputStreamManager::PostProcessによって出力ストリームに流れたパケットを次のノード（のInputStreamManager）に伝播させる。
 <!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
 ### 📄 mediapipe/framework/calculator_node.cc
 ```c++
