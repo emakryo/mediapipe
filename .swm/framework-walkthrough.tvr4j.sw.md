@@ -1364,6 +1364,37 @@ CalculatorNode::ProcessNodeを呼び出し、最後にCalculatorNode::EndSchedul
 
 <br/>
 
+ノードのスケジューリングが行われる
+<!-- NOTE-swimm-snippet: the lines below link your snippet to Swimm -->
+### 📄 mediapipe/framework/calculator_node.cc
+```c++
+756    void CalculatorNode::EndScheduling() {
+757      {
+758        absl::MutexLock lock(&status_mutex_);
+759        if (status_ != kStateOpened && status_ != kStateActive) {
+760          return;
+761        }
+762        --current_in_flight_;
+763        CHECK_GE(current_in_flight_, 0);
+764    
+765        if (scheduling_state_ == kScheduling) {
+766          // Changes the state to scheduling pending if another thread is doing the
+767          // scheduling.
+768          scheduling_state_ = kSchedulingPending;
+769          return;
+770        } else if (scheduling_state_ == kSchedulingPending) {
+771          // Quits when another thread is already doing the scheduling.
+772          return;
+773        }
+774        scheduling_state_ = kScheduling;
+775      }
+776      SchedulingLoop();
+777    }
+778    
+```
+
+<br/>
+
 ## 出力ストリームに対するコールバックが呼ばれるまで
 
 <br/>
